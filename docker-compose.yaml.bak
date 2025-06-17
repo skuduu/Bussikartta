@@ -6,15 +6,17 @@ services:
     ports:
       - "8007:5000"
     environment:
-      - PGHOST=db
-      - PGPORT=5432
-      - PGDATABASE=hslbussit
-      - PGUSER=postgres
-      - PGPASSWORD=supersecurepassword
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASS=${POSTGRES_PASSWORD}
     depends_on:
       - db
+    # Optional: live code reload during development
     volumes:
       - .:/app
+
   db:
     image: timescale/timescaledb:2.15.2-pg15
     environment:
@@ -38,43 +40,6 @@ services:
       - ./backups:/backups
       - timescale-data:/var/lib/postgresql/data
     entrypoint: ["/bin/sh", "-c", "while true; do /repo/backup.sh; sleep 86400; done"]
-
-  gtfs-static:
-    build:
-      context: ./gtfs_static
-    container_name: gtfs-static
-    environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=hslbussit
-      - DB_USER=postgres
-      - DB_PASS=supersecurepassword
-    depends_on:
-      - db
-
-  mqtt-ingest:
-    build:
-      context: ./ingestion/mqtt_hfp_ingest
-    container_name: mqtt-ingest
-    restart: unless-stopped
-    environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=hslbussit
-      - DB_USER=postgres
-      - DB_PASS=supersecurepassword
-    depends_on:
-      - db
-
-  vehicle-ingest:
-    build:
-      context: .
-    environment:
-      - PYTHONUNBUFFERED=1
-    working_dir: /app/ingestion
-    command: python vehicle_positions_ingest.py
-    depends_on:
-      - db
 
 volumes:
   timescale-data:

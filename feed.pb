@@ -1,0 +1,1 @@
+This endpoint has been deprecated and removed. More information available at https://digitransit.fi/en/developers/deprecations/

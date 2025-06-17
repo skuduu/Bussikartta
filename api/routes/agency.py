@@ -1,19 +1,14 @@
 from fastapi import APIRouter
-from ingestion.config import IngestionConfig
-import psycopg2
-import psycopg2.extras
 
 router = APIRouter()
-config = IngestionConfig()
 
-def get_conn():
-    return psycopg2.connect(**config.pg_dsn(), cursor_factory=psycopg2.extras.RealDictCursor)
-
-@router.get("/")
+@router.get("/agency")
 def get_agency():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM gtfs_agency")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    return {
+        "agency_id": "HSL",
+        "agency_name": "Helsinki Regional Transport Authority",
+        "agency_url": "https://www.hsl.fi/",
+        "agency_timezone": "Europe/Helsinki",
+        "agency_lang": "fi",
+        "agency_phone": "+358 9 4766 4000"
+    }

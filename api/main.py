@@ -1,23 +1,43 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from ingestion.config import IngestionConfig
-import psycopg2
-import psycopg2.extras
 
-from .routes import vehicles, trips, alerts, stops, routes, feed_info, calendar, agency, emissions, fare_attributes, fare_rules, transfers
+# Import routers from all route modules
+from api.routes import (
+    agency,
+    alerts,
+    calendar,
+    emissions,
+    fare_attributes,
+    fare_rules,
+    feed_info,
+    routes,
+    stops,
+    transfers,
+    trips,
+    vehicle_positions,
+    vehicles,
+)
 
-app = FastAPI()
-config = IngestionConfig()
+app = FastAPI(
+    title="HSL Bus API",
+    description="API for Helsinki Regional Transport data",
+    version="0.1.0",
+)
 
-app.include_router(vehicles.router, prefix="/vehicles")
-app.include_router(trips.router, prefix="/trips")
-app.include_router(alerts.router, prefix="/alerts")
-app.include_router(stops.router, prefix="/stops")
-app.include_router(routes.router, prefix="/routes")
-app.include_router(feed_info.router, prefix="/feed_info")
-app.include_router(calendar.router, prefix="/gtfs")
-app.include_router(agency.router, prefix="/agency")
-app.include_router(emissions.router, prefix="/emissions")
-app.include_router(fare_attributes.router, prefix="/fare_attributes")
-app.include_router(fare_rules.router, prefix="/fare_rules")
-app.include_router(transfers.router, prefix="/transfers")
+# Include all routers
+app.include_router(agency.router)
+app.include_router(alerts.router)
+app.include_router(calendar.router)
+app.include_router(emissions.router)
+app.include_router(fare_attributes.router)
+app.include_router(fare_rules.router)
+app.include_router(feed_info.router)
+app.include_router(routes.router)
+app.include_router(stops.router)
+app.include_router(transfers.router)
+app.include_router(trips.router)
+app.include_router(vehicle_positions.router)
+app.include_router(vehicles.router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8007)

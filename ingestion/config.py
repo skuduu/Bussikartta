@@ -1,18 +1,9 @@
 import os
 
-class IngestionConfig:
-    def __init__(self):
-        self.db_name = os.getenv("POSTGRES_DB", "hslbussit")
-        self.db_user = os.getenv("POSTGRES_USER", "hsluser")
-        self.db_password = os.getenv("POSTGRES_PASSWORD", "hslpassword")
-        self.db_host = os.getenv("POSTGRES_HOST", "db")
-        self.db_port = os.getenv("POSTGRES_PORT", "5432")
+GTFS_VEHICLE_URL = "https://realtime.hsl.fi/realtime/vehicle-positions/v2/hsl"
 
-    def pg_dsn(self):
-        return {
-            "dbname": self.db_name,
-            "user": self.db_user,
-            "password": self.db_password,
-            "host": self.db_host,
-            "port": self.db_port
-        }
+DB_HOST = "db"
+DB_PORT = 5432
+DB_NAME = "hslbussit"
+DB_USER = "postgres"
+DB_PASS = "supersecurepassword"

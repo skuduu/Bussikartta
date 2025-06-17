@@ -1,7 +1,8 @@
-# api/routes/vehicles.py
+# api/routes/vehicle_positions.py
 from fastapi import APIRouter, HTTPException
 import psycopg2
 import os
+from datetime import datetime
 
 router = APIRouter()
 
@@ -14,22 +15,29 @@ def get_db_connection():
         password=os.getenv("PGPASSWORD", "supersecurepassword"),
     )
 
-@router.get("/vehicles")
-def get_vehicles():
+@router.get("/vehicle_positions")
+def get_vehicle_positions():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT vehicle_id, label, vehicle_type, capacity FROM vehicles;")
+        cur.execute("""
+            SELECT vehicle_id, latitude, longitude, bearing, speed, timestamp
+            FROM vehicle_positions
+            ORDER BY timestamp DESC
+            LIMIT 100;
+        """)
         rows = cur.fetchall()
-        vehicles = []
+        positions = []
         for row in rows:
-            vehicles.append({
+            positions.append({
                 "vehicle_id": row[0],
-                "label": row[1],
-                "vehicle_type": row[2],
-                "capacity": row[3]
+                "latitude": row[1],
+                "longitude": row[2],
+                "bearing": row[3],
+                "speed": row[4],
+                "timestamp": row[5].isoformat() if isinstance(row[5], datetime) else row[5]
             })
-        return vehicles
+        return positions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
