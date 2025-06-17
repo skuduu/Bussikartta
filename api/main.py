@@ -4,7 +4,7 @@ from ingestion.config import IngestionConfig
 import psycopg2
 import psycopg2.extras
 
-from routes import vehicles, trips, alerts, stops, routes, feed_info, calendar, agency, emissions, fare_attributes, fare_rules, transfers
+from .routes import vehicles, trips, alerts, stops, routes, feed_info, calendar, agency, emissions, fare_attributes, fare_rules, transfers
 
 app = FastAPI()
 config = IngestionConfig()

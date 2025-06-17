@@ -2,35 +2,42 @@ version: "3.9"
 
 services:
   api-server:
-    image: python:3.12
-    container_name: hslbussit-api-server
-    working_dir: /app
-    volumes:
-      - ./api:/app
-      - ../ingestion:/app/ingestion
-    command: sh -c "pip install -r /app/requirements.txt && uvicorn main:app --host 0.0.0.0 --port 5000 --reload"
-    environment:
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=hslbussit
-      - POSTGRES_USER=hsluser
-      - POSTGRES_PASSWORD=hslpassword
+    build: .
     ports:
       - "8007:5000"
+    volumes:
+      - .:/app
     depends_on:
       - db
 
   db:
-    image: timescale/timescaledb:latest-pg15
-    container_name: hslbussit-db
+    image: timescale/timescaledb:2.15.2-pg15
     environment:
-      POSTGRES_DB: hslbussit
-      POSTGRES_USER: hsluser
-      POSTGRES_PASSWORD: hslpassword
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     volumes:
       - timescale-data:/var/lib/postgresql/data
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backup:
+    image: alpine
+    volumes:
+      - .:/repo           # Your app code (where backup.sh lives)
+      - ./backups:/backups     # Where backups are saved
+      - timescale-data:/var/lib/postgresql/data  # Direct access to Postgres data volume
+    entrypoint: ["/bin/sh", "-c", "while true; do /repo/backup.sh; sleep 86400; done"]
 
 volumes:
   timescale-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /volume1/docker/hslbussit/repo/dbdata
