@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  api-server:
+    image: python:3.12
+    container_name: hslbussit-api-server
+    working_dir: /app
+    volumes:
+      - ./api:/app
+      - ../ingestion:/app/ingestion
+    command: sh -c "pip install -r /app/requirements.txt && uvicorn main:app --host 0.0.0.0 --port 5000 --reload"
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=hslbussit
+      - POSTGRES_USER=hsluser
+      - POSTGRES_PASSWORD=hslpassword
+    ports:
+      - "8007:5000"
+    depends_on:
+      - db
+
+  db:
+    image: timescale/timescaledb:latest-pg15
+    container_name: hslbussit-db
+    environment:
+      POSTGRES_DB: hslbussit
+      POSTGRES_USER: hsluser
+      POSTGRES_PASSWORD: hslpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+
+volumes:
+  timescale-data:
