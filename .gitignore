@@ -6,6 +6,7 @@ __pycache__/
 *.sqlite
 *.log
 .DS_Store
+api/.DS_Store
 .env
 dbdata/
 backups/
