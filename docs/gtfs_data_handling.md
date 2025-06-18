@@ -167,3 +167,18 @@ This interplay ensures **riders/developers see not just where vehicles are, but 
 By carefully handling GTFS static data – keeping it up-to-date and accurately linking it with incoming realtime data – Bussikartta provides a reliable and insightful view of transit operations. The GTFS ingestion and cross-referencing process might be complex under the hood, but it results in a seamless experience where live data is always contextualized by schedule expectations. This document covered the mechanics of that process. In the next documentation sections, we cover how the frontend leverages this data and the specifics of the API endpoints that deliver both static and dynamic data to users.
 
 
+
+
+> **Updated by system audit on 2025-06-18 19:10 UTC.**
+
+
+## ✅ Verified GTFS Procedures
+
+- Static loader inserts into `agency`, `stops`, `routes`, `trips` with `ON CONFLICT` upserts.
+- GTFS RT vehicle positions inserted into `vehicle_positions`.
+
+## 🔍 Suggested Improvements
+
+- Add checksums or validation for GTFS ZIP content.
+- Add `timestamp` validation or `tst` fallback during ingestion for debugging.
+

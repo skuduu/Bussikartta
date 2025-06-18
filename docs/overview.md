@@ -141,3 +141,13 @@ docker-compose exec backend python scripts/import_gtfs.py
 ---
 
 This `overview.md` provides both a bird’s-eye view and under-the-hood walkthrough of Bussikartta. Let me know if you’d like additional sections!
+
+
+> **Updated by system audit on 2025-06-18 19:10 UTC.**
+
+
+## ✅ Confirmed Working Components
+
+- **Backend ingestion** (mqtt-ingest, vehicle-ingest): Confirmed stable and operating as expected.
+- **Database schema**: Validated for all ingest pipelines and API usage.
+- **Frontend base**: Map rendering verified with no stale markers.

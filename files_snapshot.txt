@@ -1,6 +1,6 @@
 # Project Snapshot: Bussikartta
-# Git Commit: 9f534dbf2a21ce81d135f0aa54caa3d134223dc7
-# Generated: 2025-06-18T16:09:37Z
+# Git Commit: 1a1e2a5ad879c4368711680848fe004883688059
+# Generated: 2025-06-18T16:25:37Z
 
 === FILE: .gitignore ===
 __pycache__/
@@ -746,6 +746,31 @@ cd /backups
 ls -1tr | head -n -7 | xargs rm -f --
 
 echo "Backup completed at $DATE"
+
+=== FILE: create_snapshot.sh ===
+#!/bin/bash
+
+OUTPUT="files_snapshot.txt"
+
+# Write header
+{
+  echo "# Project Snapshot: Bussikartta"
+  echo "# Git Commit: $(git rev-parse HEAD)"
+  echo "# Generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  echo ""
+} > "$OUTPUT"
+
+# List all tracked files except the output file itself
+git ls-files -z | grep -vzZ '^files_snapshot.txt$' | while IFS= read -r -d '' file; do
+  echo "=== FILE: $file ===" >> "$OUTPUT"
+  if [ -f "$file" ]; then
+    cat "$file" >> "$OUTPUT"
+  else
+    echo "[SKIPPED: not a regular file]" >> "$OUTPUT"
+  fi
+  echo -e "\n" >> "$OUTPUT"
+done
+
 
 === FILE: docker-compose.yaml ===
 version: "3.9"

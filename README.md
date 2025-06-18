@@ -1,70 +1,85 @@
 # Bussikartta
 
-**Bussikartta** is a real-time public transport tracking system designed to visualize live vehicle locations on a map and measure their performance against scheduled transit data. It is built for the Helsinki region (HSL) and supports modular extension to other regions or data sources.
+**Bussikartta** is a real-time public transport tracking system for the Helsinki region (HSL). It ingests live vehicle positions, compares them to scheduled GTFS data, and presents vehicle status on an interactive map.
 
 ---
 
-## 🚀 Overview
+## 🚀 System Overview
 
-Bussikartta ingests live vehicle data from MQTT feeds and compares it against GTFS-based schedule data to compute real-time delays. It features:
+Bussikartta supports real-time monitoring and analytics of public transit by:
 
-- Real-time tracking of buses and other transit using MQTT.
-- Delay calculation based on GTFS schedule data.
-- Interactive map frontend (React + MapLibre).
-- Backend REST API (FastAPI).
-- Historical data storage with TimescaleDB.
+- Ingesting live data from HSL’s MQTT HFP feeds.
+- Storing and querying recent vehicle positions via TimescaleDB.
+- Periodically syncing static GTFS schedule data.
+- Exposing a backend API for vehicle queries.
+- Rendering real-time maps in a responsive frontend.
 
 ---
 
-## 🏗️ Architecture Summary
+## 📦 Service Architecture
 
-### Backend
-- **FastAPI** for API routing and logic.
-- **TimescaleDB** for storing static and dynamic transit data.
-- **MQTT Subscriber** that ingests real-time HFP feed from HSL.
-- **GTFS Ingestor** that parses and imports static schedules.
-- Modular services managed via Docker Compose.
+### 🖥️ Backend Services
 
-### Frontend
-- Built with **React**, **Tailwind CSS**, and **MapLibre GL JS**.
-- Displays live vehicle locations, delay status, and route info.
-- Polling-based updates with optional WebSocket/MQTT expansion.
-- Clean and responsive UI, optimized for performance and mobile use.
+| Service         | Description                                      | DB Tables Used       | Input Source       |
+|-----------------|--------------------------------------------------|----------------------|--------------------|
+| `mqtt-ingest`   | Realtime subscriber to MQTT HFP feeds           | `mqtt_hfp`           | MQTT feed (HSL)    |
+| `vehicle-ingest`| Periodic GTFS-RT vehicle position fetch         | `vehicle_positions`  | GTFS-RT URL        |
+| `gtfs-static`   | Loads static GTFS (routes, stops, trips)        | `routes`, `stops`, `trips`, etc. | GTFS ZIP |
+| `api-server`    | FastAPI REST API server                         | read-only            | -                  |
+| `backup`        | Snapshot script for TimescaleDB volumes         | file-level           | -                  |
+
+### 🌐 Frontend
+
+| Component       | Description                                | Stack                    |
+|-----------------|--------------------------------------------|--------------------------|
+| `MapView.tsx`   | Displays OpenStreetMap + markers (disabled) | React, MapLibre, Tailwind|
+| `App.tsx`       | Polls vehicle API and logs updates          | React                    |
+
+---
+
+## 🗺️ Live Map
+
+Currently displays a full-coverage street map using MapLibre. Vehicle markers are disabled for testing/debugging but API polling and console logging are active.
 
 ---
 
 ## 🧭 GTFS Data Handling
 
-- Ingests static GTFS data (routes, stops, trips, timetables).
-- Maintains database schema for cross-referencing real-time info.
-- Enables delay computation and trip association via trip_id.
-- Supports daily updates and verification of GTFS feed versions.
-- Cross-references static and live data to enrich API responses.
-
----
-
-## 🧱 AI-Led Development Workflow
-
-- AI is the **only developer**; the user executes instructions.
-- AI outputs full, production-ready files—never code snippets.
-- Terminal commands must include folder context and be one-liners.
-- Persistent shell aliases allowed for repetitive tasks.
-- Logging must be built-in across all layers (backend, frontend, Docker, browser console).
-- Active tasks are tracked and resumed after detours (debugging, inspections).
-- Commands use Synology DSM 7.2.2 environment (vi, BBEdit).
-
-See [docs/AI-Guidelines.md](docs/AI-Guidelines.md) for full development protocol.
+| Feature                     | Status |
+|----------------------------|--------|
+| Static GTFS ZIP fetch      | ✅     |
+| Routes, Stops, Trips load  | ✅     |
+| Vehicle position matching  | ✅     |
+| Delay computation          | planned|
+| Feed refresh/rotation      | planned|
 
 ---
 
 ## 📂 Repository Structure
 
-- `backend/` — FastAPI application and MQTT/GTFS ingestors
-- `frontend/` — React + Tailwind + MapLibre frontend (planned/active)
-- `docs/` — Architecture, GTFS, frontend, AI guidelines
-- `gtfs_static/`, `ingestion/` — Data ingestion services
-- `docker-compose.yml` — Orchestration of services
-- `backup.sh` — TimescaleDB backup utility
+| Path                | Purpose                                       |
+|---------------------|-----------------------------------------------|
+| `backend/`          | FastAPI API and ingestion orchestrators       |
+| `frontend/`         | React app with map and polling UI             |
+| `gtfs_static/`      | GTFS static ZIP fetcher and loader            |
+| `ingestion/`        | MQTT and GTFS-RT handlers                     |
+| `docs/`             | Developer and architecture docs               |
+| `docker-compose.yaml` | Multi-service orchestration                |
+| `backup.sh`         | TimescaleDB dump utility                      |
+
+---
+
+## 🧱 AI-Led Development Workflow
+
+This project is fully AI-led and uses a strict shell + editor execution pattern:
+
+- AI outputs full file replacements.
+- Only `vi` and `BBEdit` are allowed for edits.
+- Docker-compose service restart logic is included with changes.
+- Logging is enabled across backend, frontend, MQTT and browser console.
+- Development tracked via Active Task + Temporary Task switching.
+
+See [docs/AI-Guidelines.md](docs/AI-Guidelines.md) for full protocol.
 
 ---
 
@@ -73,14 +88,14 @@ See [docs/AI-Guidelines.md](docs/AI-Guidelines.md) for full development protocol
 ```bash
 git clone https://github.com/skuduu/Bussikartta.git
 cd Bussikartta
-cp .env.example .env  # edit as needed
-docker-compose up -d
-docker-compose exec backend python scripts/import_gtfs.py
+cp .env.example .env
+docker compose up -d --build
+docker compose exec api-server python scripts/import_gtfs.py
 ```
 
 Access:
-- API: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Frontend: [http://localhost:3000](http://localhost:3000) (if implemented)
+- Backend: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Frontend: [http://localhost:3000](http://localhost:3000)
 
 ---
 
@@ -94,4 +109,4 @@ Access:
 
 ---
 
-*Bussikartta transforms open transit data into real-time, actionable insights for developers and commuters.*  
+*Bussikartta transforms open data into real-time insights for developers and commuters alike.*

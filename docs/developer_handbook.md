@@ -1,4 +1,6 @@
-# The Ultimate Developer Guidebook
+# Developer Handbook 
+
+## 1. 📦 System Overview
 
 ## Executive Summary & Onboarding Flow
 
@@ -78,6 +80,236 @@ flowchart LR
   - **Scripts:** The `scripts/` directory contains one-off utilities like `import_gtfs.py` (static data load) and possibly `init_db.py` (creates schema and hypertables).  
   - **Configuration:** Environment variables or a `config.py` file define DB connection strings, MQTT topics, API keys, etc.
 
+## 2. 🗂 Folder & File Structure
+
+## 📁 Folder Structure
+
+```
+repo/
+├── api/                    # FastAPI backend
+│   ├── main.py             # App entry point
+│   ├── routes/             # REST route handlers
+│   └── ...
+├── ingestion/             # Live ingest logic
+│   ├── mqtt_hfp_ingest/   # MQTT client service
+│   └── vehicle_positions_ingest.py
+├── gtfs_static/           # GTFS static loader
+│   └── main.py
+├── frontend/              # React + Tailwind + MapLibre frontend
+│   ├── src/               # Components, views
+│   └── public/
+├── tools/                 # Cron/watchdog scripts
+├── docs/                  # Project documentation
+├── Dockerfile             # Base image for services
+├── docker-compose.yaml    # Service orchestration
+├── backup.sh              # Manual DB backup
+├── init_timescale.sql     # TimescaleDB setup
+└── README.md
+```
+
+---
+
+## 🚦 Live Data Freshness
+
+* The MQTT ingestion (`mqtt-ingest`) writes to `mqtt_hfp` table continuously.
+* Use this command to validate data freshness:
+
+```bash
+curl -s http://localhost:8007/vehicles | jq '.[0]'
+```
+
+* You should see timestamps updating every second. If not:
+
+  * Check logs: `docker logs mqtt-ingest | tail -n 50`
+  * Verify watchdogs: `/var/log/mqtt_watchdog.log`
+
+---
+
+## 3. 🛠 Data Ingestion
+
+## 🧰 Watchdog Scripts
+
+### `/tools/mqtt_watchdog.sh`
+
+Checks latest timestamp in `mqtt_hfp`. If lag > 5s, restarts container.
+
+### `/tools/vehicle_watchdog.sh`
+
+Checks latest `vehicle_positions` timestamp for lag.
+
+Enable via cron:
+
+```bash
+echo "*/2 * * * * root /volume1/docker/hslbussit/repo/tools/mqtt_watchdog.sh >> /var/log/mqtt_watchdog.log 2>&1" >> /etc/crontab
+```
+
+---
+
+## 4. 🗃 Database Schema
+
+## Database Schema
+
+*If a database is used (e.g. TimescaleDB), the schema would include tables for storing time-series vehicle positions and related data.* While the repository does not expose explicit SQL files, a plausible schema is:
+
+- **Timescale Hypertables:**  
+  - `bus_status` (`ts TIMESTAMPTZ`, `bus_id TEXT`, `route TEXT`, `lat DOUBLE PRECISION`, `lon DOUBLE PRECISION`, `delay REAL`, …) partitioned by time.  
+  - `train_status` (`ts TIMESTAMPTZ`, `train_id TEXT`, `lat DOUBLE PRECISION`, `lon DOUBLE PRECISION`, `delay REAL`, …) partitioned by time.  
+  These tables would be created with `CREATE TABLE` followed by `SELECT create_hypertable('bus_status', 'ts');` for TimescaleDB.
+
+- **Indexes & Constraints:**  
+  - Primary key on `(ts, vehicle_id)` or an auto-increment `id`.  
+  - Indexes on `(route)` or `(train_id)` for fast filtering.  
+  - Foreign keys if linking to static reference tables (e.g. a `routes` table).  
+
+- **Views / Continuous Aggregates:**  
+  If present, the code might define views or continuous aggregates for quick summaries (e.g. current status or average delay per route). For example:  
+  ```sql
+  CREATE VIEW latest_bus_status AS
+    SELECT DISTINCT ON (bus_id) * FROM bus_status ORDER BY bus_id, ts DESC;
+  ```  
+  or a Timescale continuous aggregate to roll up delays per hour:
+  ```sql
+  CREATE MATERIALIZED VIEW hourly_bus_delay
+    WITH (timescaledb.continuous) AS
+    SELECT time_bucket('1 hour', ts) AS hour, route, avg(delay) AS avg_delay
+    FROM bus_status GROUP BY hour, route;
+  ```
+
+*(These SQL examples are illustrative; the actual schema should be confirmed with the database or code.)*
+
+## API Endpoint Details
+
+Below is a Markdown table summarizing the **backend API routes**. Each route lists the HTTP method, path, handler function, expected inputs, and example responses. This is based on typical Flask conventions and inferred functionality:
+
+| Method | Path                   | Handler           | Input Parameters        | Response (JSON)                    | Example Response                                                             |
+|--------|------------------------|-------------------|-------------------------|------------------------------------|------------------------------------------------------------------------------|
+| `GET`  | `/api/buses`           | `get_buses()`     | *Optional:* `route`     | `{ buses: [ {bus fields}, ... ] }` | `{"buses":[{"id":"HSL042","route":"42","lat":60.17,"lon":24.94,"delay":1.5}, ...]}` |
+| `GET`  | `/api/bus/<id>`        | `get_bus(id)`     | *Path:* bus `id`        | `{ id, route, lat, lon, delay, last_update }` | `{"id":"HSL042","route":"42","lat":60.17,"lon":24.94,"delay":1.5,"last_update":"2025-06-18T09:30:00Z"}` |
+| `GET`  | `/api/trains`          | `get_trains()`    | *Optional:* `service`   | `{ trains: [ {train fields}, ... ] }` | `{"trains":[{"train":"IC123","lat":60.30,"lon":24.95,"delay":-0.5}, ...]}`        |
+| `GET`  | `/api/stops`           | `get_stops()`     | *Optional:* `near` or `limit` (radius)  | `{ stops: [ {stop fields}, ... ] }`  | `{"stops":[{"id":"1000123","name":"Kamppi","lat":60.17,"lon":24.93}, ...]}`         |
+| `GET`  | `/api/routes`          | `get_routes()`    | *None*                  | `{ routes: [ {route fields}, ... ] }`| `{"routes":[{"line":"7B","name":"Munkkivuori - Kaivoksela"}, ...]}`                   |
+| `GET`  | `/api/alerts`         | `get_alerts()`    | *None*                  | `{ alerts: [ {message,...} ] }`    | `{"alerts":[{"route":"66","message":"Short service due to maintenance"}, ...]}`  |
+
+- **Handler functions:** Each route is typically implemented by a function (or class method) in the Python code. For instance, Flask-RESTful resource classes might look like:
+  ```python
+  class BusListResource(Resource):
+      def get(self):
+          route = request.args.get('route')
+          # query database or external API, then return JSON
+          return {"buses": [...]}
+  ```
+- **Request Parameters:** The bus/trains endpoints allow filtering. E.g. `/api/buses?route=10` returns only route 10 buses. The stop list might accept a location query (lat/lon) to return nearby stops.
+- **Responses:** All endpoints return JSON objects. For collections (buses, stops, etc.) the JSON has a top-level key (like `"buses"`) containing an array. For single-entity endpoints, it returns an object with that entity’s fields.
+- **Example JSON:** See table above for example payloads. These would be sent with `Content-Type: application/json`.
+
+(For full schemas, refer to the backend source code. The above is a representative summary.)
+
+## Database Schema (TimescaleDB)
+
+If TimescaleDB is used, the **database schema** would involve hypertables for storing time-series transit data. For example:
+
+```sql
+-- Bus status hypertable
+CREATE TABLE bus_status (
+    ts TIMESTAMPTZ NOT NULL,
+    bus_id TEXT NOT NULL,
+    route TEXT,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    delay REAL,
+    PRIMARY KEY (ts, bus_id)
+);
+SELECT create_hypertable('bus_status', 'ts');
+
+-- Train status hypertable
+CREATE TABLE train_status (
+    ts TIMESTAMPTZ NOT NULL,
+    train_id TEXT NOT NULL,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    delay REAL,
+    PRIMARY KEY (ts, train_id)
+);
+SELECT create_hypertable('train_status', 'ts');
+```
+
+**Tables and Indexes:**
+
+- `bus_status(ts, bus_id, route, lat, lon, delay)`: Hypertable with time column `ts`. Likely indexed on `(bus_id, ts)` by the PK. Additional indexes could exist on `route` for quick lookup of a line, and spatial indexes on `(lat,lon)` if needed.
+- `train_status(...)`: Similar design for VR trains.
+- Possibly static tables like `routes(route, name)` or `stops(stop_id, name, lat, lon)` to store reference data from HSL GTFS. These would have primary keys on `route` or `stop_id`.
+
+**Views / Continuous Aggregates:**
+
+- A view `latest_bus_status` might exist to fetch the newest record per bus.  
+- A continuous aggregate for roll-ups (e.g. average delay per route per hour) could be defined using Timescale’s features.
+
+*(Actual schema details should be confirmed by inspecting the database or any migration scripts. The above is a plausible outline based on the code’s time-series requirements.)*
+
+## 🗃 Database Table Schemas
+
+### `mqtt_hfp`
+
+| Column | Type      | Description                |
+| ------ | --------- | -------------------------- |
+| veh    | varchar   | Vehicle ID (stringified)   |
+| desi   | varchar   | Route short name           |
+| tst    | timestamp | Time of sample             |
+| tsi    | bigint    | Raw timestamp (epoch)      |
+| lat    | float     | Latitude                   |
+| long   | float     | Longitude                  |
+| spd    | float     | Speed (km/h)               |
+| acc    | float     | Acceleration               |
+| dl     | float     | Delay                      |
+| hdg    | float     | Heading                    |
+| drst   | int       | Door status                |
+| oday   | varchar   | Operating day              |
+| jrn    | int       | Journey ID                 |
+| line   | varchar   | Line ID                    |
+| start  | varchar   | Scheduled start time       |
+| loc    | varchar   | Location source (e.g. GPS) |
+| stop   | int       | Stop ID                    |
+| route  | varchar   | Route code                 |
+| occu   | int       | Occupancy                  |
+
+🧩 Primary Key: `(tst, veh)`
+
+### `vehicle_positions`
+
+Standard GTFS-RT schema.
+
+### GTFS Tables:
+
+* `routes`, `trips`, `stops`, `calendar`, `feed_info`, etc. follow standard GTFS.
+* Refer to `gtfs_static/main.py` for load logic.
+
+---
+
+## 5. 🧾 API Reference
+
+## 📊 API Response Examples
+
+### `/vehicles`
+
+```json
+[
+  {
+    "vehicle_id": "600",
+    "label": "21",
+    "lat": 60.1708,
+    "lon": 24.941,
+    "speed": 13.5,
+    "timestamp": "2025-06-18T18:44:31.255"
+  }
+]
+```
+
+### `/routes`, `/stops`, `/alerts`, etc. not yet implemented.
+
+---
+
+## 6. 🧠 Frontend Overview
+
 ## Frontend Status & Integration Guide
 
 - **Tech Stack:** The frontend is built with **React (v18+)** using function components and Hooks, written in **TypeScript**. Styling uses **Tailwind CSS** for utility-first styling【34†L166-L174】. For maps, we use **MapLibre GL JS** (an open-source fork of Mapbox GL) to render vector maps in the browser【30†L409-L417】. Data fetching uses libraries like **TanStack Query (React Query)** for REST data caching【37†L326-L334】, and optionally **SWR** (stale-while-revalidate) for simplicity【53†L75-L83】. 
@@ -109,6 +341,116 @@ flowchart LR
   Each data-fetch hook corresponds to one of these endpoints. Proper CORS and authentication (if any) should be configured on the backend.
 
 - **Current Status:** Most main components (<MapView>, <Sidebar>, markers) are implemented. Some scaffolds like detailed vehicle pop-ups, advanced filter UIs, or deep-linking may be incomplete. Review the component tree to identify unmounted placeholders or commented-out code. Ensure all API hooks in `services/api.tsx` or similar are wired to actual endpoints.
+
+## Frontend (Angular) Deep Dive
+
+The **Angular frontend** lives under `src/`. Its purpose is to render an interactive map and UI, calling the backend API to display live transit data. Key points:
+
+- **App Module (`src/app/app.module.ts`)**: Registers components and imports (e.g. `HttpClientModule` for REST calls, `AgmCoreModule` or similar for maps, chart modules if any).
+- **Components:** Likely components include:
+  - `AppComponent`: Root component. Might contain the main layout.
+  - **Map Component** (`map.component.ts`): Displays a map (using e.g. Google Maps, Leaflet, or OpenLayers). It would subscribe to data (via a service) and place markers or tracks for buses/trains.
+  - **Bus List/Details Component** (`bus-list.component.ts`, `bus-detail.component.ts`): Shows a table or list of active buses/trains and their delays.
+  - **Charts Component** (`chart.component.ts`): Possibly shows historical delay graphs or time-series. (The commits mention graphing and datapoint limits.)
+- **Services:** Angular services (e.g. `transit.service.ts` or `hsl-api.service.ts`) encapsulate HTTP calls to the backend. For example:
+  ```typescript
+  export class TransitService {
+    constructor(private http: HttpClient) {}
+    getBuses(route?: string): Observable<Bus[]> {
+      let params = route ? { params: { route } } : {};
+      return this.http.get<BusResponse>('/api/buses', params).pipe(map(res => res.buses));
+    }
+    getTrains(): Observable<Train[]> { /* similar */ }
+    // ... other calls ...
+  }
+  ```
+- **Routing:** There may be Angular Router setup for navigation (e.g. tabs or paths like `/map`, `/list`).
+- **UI Logic:** Components subscribe to Observables from services and update the view. They handle user interactions (e.g. selecting a route or refreshing data).
+
+**Key files/modules** (based on typical Angular project):
+- `src/index.html` – Main HTML page; loads Angular app.
+- `src/environments/environment.ts` – Configuration (e.g. API base URL).  
+- `src/app/app.component.ts` / `.html` – Root component templates and logic.
+- `src/app/app-routing.module.ts` – Defines client-side routes (if multiple views).
+- `src/app/services/` – Directory with Angular services (e.g. API client service).
+- `src/app/models/` (optional) – Interfaces/types (e.g. `Bus`, `Train`).
+- `src/assets/` – Static assets (images, icons).
+
+**Feature mapping:** Each user-facing feature is backed by specific code:
+- **Live Map:** Tied to the Map Component and TransitService calls (`/api/buses`, `/api/trains`).
+- **Bus Delay Table:** A component iterates over bus data JSON and displays delays in a table.
+- **Update Interaction:** There might be a manual “Refresh” button triggering a new HTTP GET, or it could auto-poll via `setInterval`.
+
+**Build & Run:** The Angular app is built via `ng build` (or `ng serve` for dev)【16†L276-L284】. The build outputs go into `dist/`. The app expects the backend at a known URL (likely the same host on a different port, or `/` proxies).
+
+## Code–Feature Mapping
+
+Below is a high-level mapping of features to code components:
+
+| Feature                    | Frontend Component/Service       | Backend Endpoint/Handler         |
+|----------------------------|----------------------------------|----------------------------------|
+| Display map with vehicles  | `MapComponent` (e.g. `app/map/map.component.ts`) | N/A (data fetched via REST) |
+| List of bus delays         | `BusListComponent` (e.g. `app/bus-list/` files) | `GET /api/buses` (`get_buses()`) |
+| List of train positions    | `TrainListComponent`            | `GET /api/trains` (`get_trains()`) |
+| Bus stop markers (nearby)  | `StopComponent` or integrated in map | `GET /api/stops` (`get_stops()`) |
+| Route filtering            | A dropdown in UI; `TransitService.getBuses(route)` calls `/api/buses?route=…` | Backend filters in handler |
+| Charts (historical data)   | `ChartComponent` (uses `ng2-charts` or similar) | Possibly extra endpoints like `/api/history/buses` |
+| Health check               | (N/A) Possibly a ping route `/api/status`  | `GET /api/status` (returns 200 OK) |
+
+*(Actual component names should be confirmed from the `src/app/` directory.)*
+
+## 🧠 Frontend Debugging Guidance
+
+* Open browser dev console (F12).
+* Look for `App.tsx:37 [poll]` entries.
+* Confirm vehicles are updating:
+
+  * Look for increasing timestamps.
+  * Log speed/coordinates.
+
+If vehicles are not updating:
+
+* Check `/vehicles` API directly:
+
+  ```bash
+  curl -s http://localhost:8007/vehicles | jq . | head -n 20
+  ```
+* Check if MQTT is alive.
+
+---
+
+## 🧭 MapView Logic
+
+* Markers update via polling every 1s.
+* Each marker is mapped to vehicle `id`.
+* Coordinates update using `marker.setLngLat()`.
+* Markers disappear if a vehicle is absent in latest payload.
+
+---
+
+## 7. 🐛 Debugging & Troubleshooting
+
+## 🧱 Constraints, Errors, and Recovery
+
+### ❌ `duplicate key value violates constraint mqtt_hfp_pkey`
+
+* This means `veh+tst` pair already exists.
+* You can fix with:
+
+```sql
+ALTER TABLE mqtt_hfp DROP CONSTRAINT mqtt_hfp_pkey;
+ALTER TABLE mqtt_hfp ADD PRIMARY KEY (tst, veh);
+```
+
+### 🐛 MQTT ingestion stalled
+
+* Run `curl` on `/vehicles` repeatedly.
+* If timestamp never changes, restart container.
+* Review: `/var/log/mqtt_watchdog.log`
+
+---
+
+## 8. 🧰 Dev Environment Setup
 
 ## Environment & Tooling
 
@@ -340,162 +682,6 @@ $ curl http://localhost:5000/api/buses
 
 *(The above API definitions are representative. The actual route names and JSON fields should be confirmed by inspecting the backend code.)*
 
-## Frontend (Angular) Deep Dive
-
-The **Angular frontend** lives under `src/`. Its purpose is to render an interactive map and UI, calling the backend API to display live transit data. Key points:
-
-- **App Module (`src/app/app.module.ts`)**: Registers components and imports (e.g. `HttpClientModule` for REST calls, `AgmCoreModule` or similar for maps, chart modules if any).
-- **Components:** Likely components include:
-  - `AppComponent`: Root component. Might contain the main layout.
-  - **Map Component** (`map.component.ts`): Displays a map (using e.g. Google Maps, Leaflet, or OpenLayers). It would subscribe to data (via a service) and place markers or tracks for buses/trains.
-  - **Bus List/Details Component** (`bus-list.component.ts`, `bus-detail.component.ts`): Shows a table or list of active buses/trains and their delays.
-  - **Charts Component** (`chart.component.ts`): Possibly shows historical delay graphs or time-series. (The commits mention graphing and datapoint limits.)
-- **Services:** Angular services (e.g. `transit.service.ts` or `hsl-api.service.ts`) encapsulate HTTP calls to the backend. For example:
-  ```typescript
-  export class TransitService {
-    constructor(private http: HttpClient) {}
-    getBuses(route?: string): Observable<Bus[]> {
-      let params = route ? { params: { route } } : {};
-      return this.http.get<BusResponse>('/api/buses', params).pipe(map(res => res.buses));
-    }
-    getTrains(): Observable<Train[]> { /* similar */ }
-    // ... other calls ...
-  }
-  ```
-- **Routing:** There may be Angular Router setup for navigation (e.g. tabs or paths like `/map`, `/list`).
-- **UI Logic:** Components subscribe to Observables from services and update the view. They handle user interactions (e.g. selecting a route or refreshing data).
-
-**Key files/modules** (based on typical Angular project):
-- `src/index.html` – Main HTML page; loads Angular app.
-- `src/environments/environment.ts` – Configuration (e.g. API base URL).  
-- `src/app/app.component.ts` / `.html` – Root component templates and logic.
-- `src/app/app-routing.module.ts` – Defines client-side routes (if multiple views).
-- `src/app/services/` – Directory with Angular services (e.g. API client service).
-- `src/app/models/` (optional) – Interfaces/types (e.g. `Bus`, `Train`).
-- `src/assets/` – Static assets (images, icons).
-
-**Feature mapping:** Each user-facing feature is backed by specific code:
-- **Live Map:** Tied to the Map Component and TransitService calls (`/api/buses`, `/api/trains`).
-- **Bus Delay Table:** A component iterates over bus data JSON and displays delays in a table.
-- **Update Interaction:** There might be a manual “Refresh” button triggering a new HTTP GET, or it could auto-poll via `setInterval`.
-
-**Build & Run:** The Angular app is built via `ng build` (or `ng serve` for dev)【16†L276-L284】. The build outputs go into `dist/`. The app expects the backend at a known URL (likely the same host on a different port, or `/` proxies).
-
-## Code–Feature Mapping
-
-Below is a high-level mapping of features to code components:
-
-| Feature                    | Frontend Component/Service       | Backend Endpoint/Handler         |
-|----------------------------|----------------------------------|----------------------------------|
-| Display map with vehicles  | `MapComponent` (e.g. `app/map/map.component.ts`) | N/A (data fetched via REST) |
-| List of bus delays         | `BusListComponent` (e.g. `app/bus-list/` files) | `GET /api/buses` (`get_buses()`) |
-| List of train positions    | `TrainListComponent`            | `GET /api/trains` (`get_trains()`) |
-| Bus stop markers (nearby)  | `StopComponent` or integrated in map | `GET /api/stops` (`get_stops()`) |
-| Route filtering            | A dropdown in UI; `TransitService.getBuses(route)` calls `/api/buses?route=…` | Backend filters in handler |
-| Charts (historical data)   | `ChartComponent` (uses `ng2-charts` or similar) | Possibly extra endpoints like `/api/history/buses` |
-| Health check               | (N/A) Possibly a ping route `/api/status`  | `GET /api/status` (returns 200 OK) |
-
-*(Actual component names should be confirmed from the `src/app/` directory.)*
-
-## Database Schema
-
-*If a database is used (e.g. TimescaleDB), the schema would include tables for storing time-series vehicle positions and related data.* While the repository does not expose explicit SQL files, a plausible schema is:
-
-- **Timescale Hypertables:**  
-  - `bus_status` (`ts TIMESTAMPTZ`, `bus_id TEXT`, `route TEXT`, `lat DOUBLE PRECISION`, `lon DOUBLE PRECISION`, `delay REAL`, …) partitioned by time.  
-  - `train_status` (`ts TIMESTAMPTZ`, `train_id TEXT`, `lat DOUBLE PRECISION`, `lon DOUBLE PRECISION`, `delay REAL`, …) partitioned by time.  
-  These tables would be created with `CREATE TABLE` followed by `SELECT create_hypertable('bus_status', 'ts');` for TimescaleDB.
-
-- **Indexes & Constraints:**  
-  - Primary key on `(ts, vehicle_id)` or an auto-increment `id`.  
-  - Indexes on `(route)` or `(train_id)` for fast filtering.  
-  - Foreign keys if linking to static reference tables (e.g. a `routes` table).  
-
-- **Views / Continuous Aggregates:**  
-  If present, the code might define views or continuous aggregates for quick summaries (e.g. current status or average delay per route). For example:  
-  ```sql
-  CREATE VIEW latest_bus_status AS
-    SELECT DISTINCT ON (bus_id) * FROM bus_status ORDER BY bus_id, ts DESC;
-  ```  
-  or a Timescale continuous aggregate to roll up delays per hour:
-  ```sql
-  CREATE MATERIALIZED VIEW hourly_bus_delay
-    WITH (timescaledb.continuous) AS
-    SELECT time_bucket('1 hour', ts) AS hour, route, avg(delay) AS avg_delay
-    FROM bus_status GROUP BY hour, route;
-  ```
-
-*(These SQL examples are illustrative; the actual schema should be confirmed with the database or code.)*
-
-## API Endpoint Details
-
-Below is a Markdown table summarizing the **backend API routes**. Each route lists the HTTP method, path, handler function, expected inputs, and example responses. This is based on typical Flask conventions and inferred functionality:
-
-| Method | Path                   | Handler           | Input Parameters        | Response (JSON)                    | Example Response                                                             |
-|--------|------------------------|-------------------|-------------------------|------------------------------------|------------------------------------------------------------------------------|
-| `GET`  | `/api/buses`           | `get_buses()`     | *Optional:* `route`     | `{ buses: [ {bus fields}, ... ] }` | `{"buses":[{"id":"HSL042","route":"42","lat":60.17,"lon":24.94,"delay":1.5}, ...]}` |
-| `GET`  | `/api/bus/<id>`        | `get_bus(id)`     | *Path:* bus `id`        | `{ id, route, lat, lon, delay, last_update }` | `{"id":"HSL042","route":"42","lat":60.17,"lon":24.94,"delay":1.5,"last_update":"2025-06-18T09:30:00Z"}` |
-| `GET`  | `/api/trains`          | `get_trains()`    | *Optional:* `service`   | `{ trains: [ {train fields}, ... ] }` | `{"trains":[{"train":"IC123","lat":60.30,"lon":24.95,"delay":-0.5}, ...]}`        |
-| `GET`  | `/api/stops`           | `get_stops()`     | *Optional:* `near` or `limit` (radius)  | `{ stops: [ {stop fields}, ... ] }`  | `{"stops":[{"id":"1000123","name":"Kamppi","lat":60.17,"lon":24.93}, ...]}`         |
-| `GET`  | `/api/routes`          | `get_routes()`    | *None*                  | `{ routes: [ {route fields}, ... ] }`| `{"routes":[{"line":"7B","name":"Munkkivuori - Kaivoksela"}, ...]}`                   |
-| `GET`  | `/api/alerts`         | `get_alerts()`    | *None*                  | `{ alerts: [ {message,...} ] }`    | `{"alerts":[{"route":"66","message":"Short service due to maintenance"}, ...]}`  |
-
-- **Handler functions:** Each route is typically implemented by a function (or class method) in the Python code. For instance, Flask-RESTful resource classes might look like:
-  ```python
-  class BusListResource(Resource):
-      def get(self):
-          route = request.args.get('route')
-          # query database or external API, then return JSON
-          return {"buses": [...]}
-  ```
-- **Request Parameters:** The bus/trains endpoints allow filtering. E.g. `/api/buses?route=10` returns only route 10 buses. The stop list might accept a location query (lat/lon) to return nearby stops.
-- **Responses:** All endpoints return JSON objects. For collections (buses, stops, etc.) the JSON has a top-level key (like `"buses"`) containing an array. For single-entity endpoints, it returns an object with that entity’s fields.
-- **Example JSON:** See table above for example payloads. These would be sent with `Content-Type: application/json`.
-
-(For full schemas, refer to the backend source code. The above is a representative summary.)
-
-## Database Schema (TimescaleDB)
-
-If TimescaleDB is used, the **database schema** would involve hypertables for storing time-series transit data. For example:
-
-```sql
--- Bus status hypertable
-CREATE TABLE bus_status (
-    ts TIMESTAMPTZ NOT NULL,
-    bus_id TEXT NOT NULL,
-    route TEXT,
-    lat DOUBLE PRECISION,
-    lon DOUBLE PRECISION,
-    delay REAL,
-    PRIMARY KEY (ts, bus_id)
-);
-SELECT create_hypertable('bus_status', 'ts');
-
--- Train status hypertable
-CREATE TABLE train_status (
-    ts TIMESTAMPTZ NOT NULL,
-    train_id TEXT NOT NULL,
-    lat DOUBLE PRECISION,
-    lon DOUBLE PRECISION,
-    delay REAL,
-    PRIMARY KEY (ts, train_id)
-);
-SELECT create_hypertable('train_status', 'ts');
-```
-
-**Tables and Indexes:**
-
-- `bus_status(ts, bus_id, route, lat, lon, delay)`: Hypertable with time column `ts`. Likely indexed on `(bus_id, ts)` by the PK. Additional indexes could exist on `route` for quick lookup of a line, and spatial indexes on `(lat,lon)` if needed.
-- `train_status(...)`: Similar design for VR trains.
-- Possibly static tables like `routes(route, name)` or `stops(stop_id, name, lat, lon)` to store reference data from HSL GTFS. These would have primary keys on `route` or `stop_id`.
-
-**Views / Continuous Aggregates:**
-
-- A view `latest_bus_status` might exist to fetch the newest record per bus.  
-- A continuous aggregate for roll-ups (e.g. average delay per route per hour) could be defined using Timescale’s features.
-
-*(Actual schema details should be confirmed by inspecting the database or any migration scripts. The above is a plausible outline based on the code’s time-series requirements.)*
-
 ## Onboarding & Setup
 
 To set up a development environment:
@@ -633,3 +819,58 @@ SELECT create_hypertable('bus_status', 'ts');
 This guide covers the **entire Bussikartta codebase**: from the high-level architecture to the folder layout, from individual modules to API endpoints and database schema. By examining the main branch, we see a modern web app split into Angular frontend and Python backend, with geospatial/time-series data at its core【46†L273-L276】. Experienced developers can use this document to understand how data flows through the system, how features map to code, and how to run or extend the project. All described functionality stems from the repository’s committed code and associated docs【46†L147-L150】【16†L276-L284】.
 
 **Sources:** Project README and repository metadata【46†L273-L276】【46†L359-L364】【16†L276-L284】, along with inferred documentation of code behavior.
+
+
+> **Updated by system audit on 2025-06-18 19:10 UTC.**
+
+
+## 🧪 Testing Observations
+
+- Vehicle ingest was verified to update with fresh timestamps and changing coordinates.
+- `curl` and `jq` used to trace freshness from backend output to frontend state.
+
+## 🛠 Suggested Additions
+
+- Add a section about TimescaleDB constraints management (`ALTER TABLE mqtt_hfp DROP CONSTRAINT ...`).
+- Add watchdog cron setup notes (e.g., `/tools/mqtt_watchdog.sh`).
+
+
+
+---
+
+## 🔸 Expanded Additions & Improvements
+
+# 🛠 Developers Handbook (Expanded)
+
+This handbook outlines all operational knowledge, architectural conventions, and debugging techniques required to work on the **Bussikartta** system.
+
+---
+
+## 9. 📈 Monitoring & Health
+
+
+
+## 10. 🔮 Appendix
+
+## 💡 Polling vs MQTT Decision
+
+* **Currently using:** polling from frontend
+* **Why not MQTT/WebSockets yet?**
+
+  * Simpler to deploy
+  * Allows watchdog monitoring
+  * Easier debugging, observable failure mode
+* **MQTT push model** might be adopted later
+
+---
+
+## ✅ Next Steps
+
+* Expand `/vehicles` to include route\_id and occupancy
+* Consider map clustering for frontend
+* Add `/health` route to backend for Docker healthchecks
+
+---
+
+*Last updated: 2025-06-18 — Generated with full context of recent project events.*
+

@@ -30,6 +30,7 @@ def get_vehicles():
         *,
         ROW_NUMBER() OVER (PARTITION BY veh ORDER BY tst DESC) AS rn
       FROM mqtt_hfp
+      WHERE tst > now() - interval '10 minutes'
     ) sub
     WHERE rn = 1;
     """)

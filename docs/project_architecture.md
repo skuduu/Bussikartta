@@ -275,3 +275,18 @@ This illustrates how real-time data flows in and how the API serves it out to us
 In conclusion, Bussikartta’s backend architecture is built for **stability**, **scalability**, and **maintainability**. It leverages proven technologies and patterns (publish/subscribe for real-time, relational model for static data, time-series optimizations for history, REST API for integration) to ensure that live transit data can be collected, stored, and delivered effectively to any client application.
 
 
+
+
+> **Updated by system audit on 2025-06-18 19:10 UTC.**
+
+
+## 🔍 Observations
+
+- `mqtt_hfp` table schema has been extended with columns like `tsi`, `odo`, etc.
+- Primary key updated to `(tst, veh)` to resolve duplicate insert issues.
+
+## ✅ Status
+
+- All pipeline services (static GTFS, RT ingestion, database writing) verified.
+- Inter-service dependencies (e.g. database environment vars) are consistent.
+

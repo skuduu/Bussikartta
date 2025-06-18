@@ -158,3 +158,18 @@ The frontend architecture of Bussikartta is designed to provide a **smooth, real
 As development progresses, this document can be updated with specifics (like component file structure, any performance tuning done, etc.). New developers should now have a clear understanding of how the frontend is planned to function and interact with the backend API to bring the Bussikartta project to life in the browser.
 
 
+
+
+> **Updated by system audit on 2025-06-18 19:10 UTC.**
+
+
+## 🔄 Status and Notes
+
+- MapLibre GL and OpenStreetMap tile sources confirmed as working.
+- React polling loop fetches `/vehicles` endpoint correctly.
+
+## 🧼 Cleanup Notes
+
+- Component `OverviewMap.tsx` exists but unused — can be removed unless kept for future mini-map.
+- Marker rendering logic is stable but previously allowed stale markers to persist. This was addressed.
+

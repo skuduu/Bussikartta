@@ -1,77 +1,110 @@
 import os
 import json
-import ssl
+import time
+import logging
+import psycopg2
 import paho.mqtt.client as mqtt
-from sqlalchemy import create_engine, MetaData, Table, Column, String, Float, TIMESTAMP
-from sqlalchemy.dialects.postgresql import insert
+from datetime import datetime
 
-# DB Config
-DB_HOST = os.getenv("DB_HOST", "db")
+# Environment variables
+MQTT_BROKER = os.getenv("MQTT_BROKER", "mqtt.hsl.fi")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "/hfp/v2/journey/ongoing/vp/bus/#")
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "hslbussit")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASS = os.getenv("DB_PASS", "supersecurepassword")
 
-# Engine & metadata
-engine = create_engine(f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
-metadata = MetaData()
-mqtt_hfp = Table(
-    'mqtt_hfp', metadata,
-    Column('tst', TIMESTAMP, primary_key=True),
-    Column('veh', String), Column('desi', String),
-    Column('dir', String), Column('lat', Float),
-    Column('long', Float), Column('spd', Float),
-    Column('hdg', Float), Column('dl', Float),
-    Column('odo', Float), Column('route', String),
-    Column('oper', String),
+# Setup logging
+logfile_path = "/var/log/mqtt_ingest.log"
+os.makedirs(os.path.dirname(logfile_path), exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(logfile_path),
+        logging.StreamHandler()
+    ]
 )
-metadata.create_all(engine)
+
+def log(msg): logging.info(msg)
+
+# MQTT event callbacks
+def on_connect(client, userdata, flags, rc):
+    log(f"Connected to MQTT broker {MQTT_BROKER}:{MQTT_PORT} with result code {rc}")
+    client.subscribe(MQTT_TOPIC)
+    log(f"Subscribed to topic: {MQTT_TOPIC}")
 
 def on_message(client, userdata, msg):
-    raw = msg.payload.decode('utf-8', errors='replace')
-    print("🔍 Raw payload:", raw)
+    log("🔔 Message received")
     try:
-        payload = json.loads(raw)
+        payload = json.loads(msg.payload.decode("utf-8"))
+        log(f"🔍 Raw payload: {msg.payload[:80]}...")
+
+        vp = payload.get("VP", {})
+        if not vp:
+            log("⚠️  No 'VP' key, skipping insert")
+            return
+
+        record = {
+            "desi": vp.get("desi"),
+            "dir": vp.get("dir"),
+            "oper": vp.get("oper"),
+            "veh": vp.get("veh"),
+            "tst": vp.get("tst"),
+            "tsi": vp.get("tsi"),
+            "spd": vp.get("spd"),
+            "hdg": vp.get("hdg"),
+            "lat": vp.get("lat"),
+            "long": vp.get("long"),
+            "acc": vp.get("acc"),
+            "dl": vp.get("dl"),
+            "odo": vp.get("odo"),
+            "drst": vp.get("drst"),
+            "oday": vp.get("oday"),
+            "jrn": vp.get("jrn"),
+            "line": vp.get("line"),
+            "start": vp.get("start"),
+            "loc": vp.get("loc"),
+            "stop": vp.get("stop"),
+            "route": vp.get("route"),
+            "occu": vp.get("occu"),
+        }
+
+        log(f"✅ Inserting record for veh={record['veh']} tst={record['tst']}")
+
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS,
+        )
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO mqtt_hfp (desi, dir, oper, veh, tst, tsi, spd, hdg, lat, long, acc,
+                                  dl, odo, drst, oday, jrn, line, start, loc, stop, route, occu)
+            VALUES (%(desi)s, %(dir)s, %(oper)s, %(veh)s, %(tst)s, %(tsi)s, %(spd)s, %(hdg)s,
+                    %(lat)s, %(long)s, %(acc)s, %(dl)s, %(odo)s, %(drst)s, %(oday)s, %(jrn)s,
+                    %(line)s, %(start)s, %(loc)s, %(stop)s, %(route)s, %(occu)s)
+        """, record)
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        log("✔️ Insert successful")
+
     except Exception as e:
-        print("❌ JSON parse error:", e)
-        return
-
-    keys = list(payload.keys())
-    print("🔑 Payload keys:", keys)
-
-    if 'VP' not in payload:
-        print("⚠️  No 'VP' key, skipping insert")
-        return
-
-    v = payload['VP']
-    print("✅ Inserting record:", v)
-    try:
-        with engine.begin() as conn:
-            stmt = insert(mqtt_hfp).values(
-                tst=v.get('tst'),
-                veh=v.get('veh'),
-                desi=v.get('desi'),
-                dir=v.get('dir'),
-                lat=v.get('lat'),
-                long=v.get('long'),
-                spd=v.get('spd'),
-                hdg=v.get('hdg'),
-                dl=v.get('dl'),
-                odo=v.get('odo'),
-                route=v.get('route'),
-                oper=v.get('oper'),
-            ).on_conflict_do_nothing()
-            conn.execute(stmt)
-        print("✔️  Insert succeeded")
-    except Exception as e:
-        print("❌ Error inserting record:", e)
+        log(f"❌ Error inserting message: {str(e)}")
 
 # MQTT setup
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+client = mqtt.Client()
+client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("mqtt.hsl.fi", 8883)
-client.subscribe("/hfp/v2/journey/ongoing/#")
-print("🚀 MQTT listener started")
+log("🚀 Starting MQTT client loop")
+client.connect(MQTT_BROKER, MQTT_PORT, 60)
 client.loop_forever()
