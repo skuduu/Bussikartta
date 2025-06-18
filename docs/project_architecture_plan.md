@@ -1,4 +1,4 @@
-# Bussikartta Architecture Plan v1.0
+# Bussikartta Architecture Plan v1.1
 
 ## 1. 🛍 Frontend
 
@@ -20,7 +20,7 @@
 | Framework          | Python (current) with upgrade path to FastAPI           |
 | Live transport     | WebSocket (primary), Polling (fallback)                 |
 | Data format        | JSON: `{vehicle_id, label, lat, lon, speed, timestamp}` |
-| WebSocket endpoint | `/ws` (planned)                                         |
+| WebSocket endpoint | `/ws`                                                   |
 | Containerization   | Yes (e.g. `repo-api-server-1` on port `8007`)           |
 
 ## 3. 🗌 Map Tiles
@@ -43,7 +43,7 @@
 | Data update interval | Offline tiles: manual, Vehicles: live  |
 | Logging & Monitoring | Optional: container logs, dev overlays |
 
-## 🔨 Locked Decisions
+## 🔒 Locked Decisions
 
 * SolidJS + Vite frontend
 * MapLibre GL JS
