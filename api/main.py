@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # <--- ADD THIS
 
 # Import routers from all route modules
 from api.routes import (
@@ -22,6 +23,16 @@ app = FastAPI(
     description="API for Helsinki Regional Transport data",
     version="0.1.0",
 )
+
+# --- ADD THIS BLOCK ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://192.168.3.114:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# ----------------------
 
 # Include all routers
 app.include_router(agency.router)
