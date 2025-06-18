@@ -1,100 +1,143 @@
-# Bussikartta
+# Bussikartta Overview
 
-**Bussikartta** is a real-time public transport tracking system that combines live vehicle location data with scheduled timetable information. It provides a map-based view of buses (and other transit vehicles) and highlights how late or on-time they are running compared to their schedule. The project includes a backend for data ingestion and an API, and a planned frontend for visualization.
+## 1. Basic Overview
 
-## Overview
+**Bussikartta** is a real-time transit tracking system designed for Helsinki Region Transport (HSL). It combines static schedule data with live vehicle telemetry to show real-time positions and delay information of buses on an interactive map.
 
-Bussikartta’s goal is to show the current positions of transit vehicles and their delays in an interactive map. It focuses on the Helsinki region (HSL) and can be extended to other regions. The system uses **FastAPI** (Python) for the backend API, **TimescaleDB** (an extension of PostgreSQL) for time-series data storage, and plans to use a **React** + **Tailwind CSS** + **MapLibre GL JS** frontend for the map UI. Real-time vehicle locations are obtained from an **MQTT** feed provided by the transit authority, and static schedule data comes from **GTFS** (General Transit Feed Specification) files.
+### Key Functionalities
 
-**Key features:**
+- **Static GTFS Schedule Import**: Imports routes, trips, stops, and timetables from HSL’s GTFS feed into a TimescaleDB database.
+- **Live Data Ingestion**: Subscribes to HSL’s MQTT feed to receive live vehicle position updates and status events.
+- **Delay Calculation**: Computes delays (ahead or behind schedule) by comparing live arrival times to scheduled times.
+- **API for Clients**: Exposes REST endpoints via FastAPI for querying vehicles, delays, stops, and routes.
+- **Interactive Frontend**: A React + MapLibre-based web app that displays bus positions and delays on an interactive map.
+- **Containerized Setup**: Uses Docker Compose to orchestrate backend, frontend, and database services.
 
-- **Real-time Vehicle Tracking:** Subscribes to HSL’s high-frequency positioning feed to get live updates of bus locations (with support for other cities' feeds in the future)【46†L71-L78】【29†L23-L31】. Vehicles are displayed on a map with their current coordinates.
-- **Delay Monitoring:** Cross-references real-time data with GTFS schedule data to calculate how many minutes late each bus or tram is running. Delays are updated continuously, allowing identification of late vehicles.
-- **Historical Data Storage:** Uses TimescaleDB to store incoming vehicle position data as a time-series. This enables querying historical trajectories or performing analyses (e.g., performance over time) while handling high insert rates efficiently【50†L315-L323】.
-- **RESTful API:** Exposes endpoints to fetch vehicle positions, routes, stops, and delay information for use by the frontend or other clients. The API is documented and provides structured JSON responses.
-- **Planned Frontend:** A responsive web application (React + Tailwind) will visualize vehicles on an interactive MapLibre map. Users will be able to filter by route or stop and see details like vehicle identifiers, routes, and delay status.
-- **Scalability and Performance:** The system is designed for high-frequency data. TimescaleDB (built on PostgreSQL) ensures scalable time-series storage and fast queries, while FastAPI provides high-performance async I/O for the API【50†L315-L323】. Data ingestion and serving are decoupled for stability.
+### Purpose
 
-## Repository Structure
-
-The repository is structured to separate concerns clearly:
-
-- **`backend/` (FastAPI application)** – Python code for the API server and data ingestion. This includes route definitions, database models, and MQTT client logic.
-- **`frontend/` (React app)** – *(Planned)* The React application source (if included or to be added) using Tailwind and MapLibre for the UI.
-- **`data/`** – Any sample data or scripts for loading data (e.g. GTFS static files or processing scripts).
-- **`docs/`** – Documentation files for developers (architecture, data handling, API reference, deployment, etc.).
-- **`docker-compose.yml`** – Docker Compose configuration to run the database, backend, and other services for deployment.
-- **`backup.sh`** – Utility script for backing up the TimescaleDB database (dumps the data for safe-keeping).
-- **Configuration files** – e.g. `.env.example` for environment variables, etc., to configure database connection or API settings.
-
-*(Note: The actual structure and file names might differ; see the repository for the exact layout.)*
-
-## Quickstart
-
-Follow these steps to get Bussikartta up and running quickly:
-
-1. **Clone the Repository:**  
-   ```bash
-   git clone https://github.com/skuduu/Bussikartta.git
-   cd Bussikartta
-   ```
-
-2. **Configure Environment:**  
-   Copy or create an `.env` file (if provided, e.g. `env.example`) and set required environment variables. At minimum, set database credentials if needed (or use the defaults in the Docker setup):
-   - `DB_HOST`, `DB_PORT` – TimescaleDB host (and port, default 5432).
-   - `DB_NAME`, `DB_USER`, `DB_PASSWORD` – Database name, username, and password (matching what the Timescale container expects).
-   - `MQTT_BROKER_URL` – MQTT broker for real-time data (default is the public HSL broker `mqtt.hsl.fi` on port 1883)【29†L23-L31】.
-   - `MQTT_TOPIC` – Topic pattern for subscriptions (default `"/hfp/journey/#"` to receive all vehicle position messages)【29†L31-L35】.
-   - Other settings like `API_PORT` or `DEBUG` as needed.
-
-3. **Launch Services with Docker:**  
-   Ensure Docker and Docker Compose are installed. Then run:  
-   ```bash
-   docker-compose up -d
-   ```  
-   This will start the TimescaleDB database service and the FastAPI backend service (and possibly other services defined, such as a message broker or ingestion service if applicable). The first time you run this, the backend may also initiate a GTFS static data import if configured to do so.
-
-4. **Initialize GTFS Data:**  
-   If the GTFS static schedule data is not automatically loaded on startup, run the import step manually:  
-   ```bash
-   docker-compose exec backend python scripts/import_gtfs.py
-   ```  
-   (Replace with the actual path/command if different.)  
-   This step downloads the latest GTFS zip (or uses a provided file) and loads routes, stops, trips, and timetables into the database. **Note:** You can skip this if the backend already did it or if using a pre-loaded database.
-
-5. **Access the API:**  
-   Once up, the FastAPI backend will be listening (by default on port 8000). You can access the interactive API documentation by opening **`http://localhost:8000/docs`** in a browser. This Swagger/OpenAPI UI lists all endpoints and allows trying them out. For example, try GET `http://localhost:8000/api/vehicles` to fetch current vehicle data.
-
-6. **Run the Frontend (optional/planned):**  
-   If a frontend React app is included or once it’s built, you can start it separately (e.g., `npm install` then `npm start` if it’s a standard Create React App). Configure the frontend to point to the backend API (e.g. base URL `http://localhost:8000/api`). The default development server runs on port 3000. Open **`http://localhost:3000`** to view the app. *(If the frontend is not yet implemented in the repo, skip this step.)*
-
-7. **Monitor and Enjoy:**  
-   With backend (and frontend) running, you should see live bus locations being ingested. The API will continuously update as MQTT messages stream in. If you query the API for vehicles, you’ll get data including positions and delay information. On the map UI (if running), you’ll see moving markers for each bus, color-coded or annotated to indicate lateness.
-
-## Documentation
-
-For detailed technical information, please refer to the [**docs/**](docs/) folder:
-
-- **[Project Architecture](docs/project_architecture.md):** Deep dive into backend components, data flow, database schema, and design principles.
-- **[GTFS Data Handling](docs/gtfs_data_handling.md):** How GTFS static schedule data is parsed and kept updated, and how it ties into real-time info.
-- **[Frontend Architecture](docs/frontend_architecture.md):** Outline of the planned frontend technology stack, map rendering strategy, and how the client interacts with the API.
-- **[API Reference](docs/api_reference.md):** Full list of API endpoints with methods, parameters, and example responses (grouped by vehicles, routes, stops, etc.).
-- **[Deployment Guide](docs/deployment.md):** Instructions for deploying the system in different environments (Docker Compose usage, environment config, updating data, backups, and scaling).
+Enable developers and users to visualize live bus locations and delays in Helsinki, providing a backend-powered API and an easy-to-deploy interface.
 
 ---
 
-Feel free to contribute or open issues. We welcome improvements from the community. Happy coding and happy commuting!
+## 2. Detailed Overview
+
+### 🏛 Architecture
+
+The system comprises several coordinated services:
+
+```
+[ GTFS Feed ] ─── import_gtfs.py ──► [TimescaleDB Static GTFS Tables]
+                   ↑
+                   └─────────────────┐
+                                     ▼
+                                FastAPI Backend ◄─────────────
+                   ▲           (REST APIs, delay logic)        │
+                   │                                             │
+[ HSL MQTT        └─────────────────────────────────────────────►│
+  Live Feed ]           MQTT Subscriber        Live Vehicle Data│
+                                                         ▲     │
+                                                         └─────┘
+                                          React + MapLibre Frontend
+```
+
+### Core Components
+
+#### 1. `gtfs_scheduler/` or `scripts/import_gtfs.py`
+- Parses GTFS ZIP feed (CSV format).
+- Populates static database tables: `routes`, `trips`, `stop_times`, `stops`, etc.
+- Ensures the database reflects the latest official schedule.
+
+#### 2. `mqtt_subscriber/` or integrated subscriber service
+- Uses an MQTT client (e.g. Paho) to connect to the HSL MQTT broker.
+- Subscribes to relevant topics (e.g. `HSL/HFP/...`).
+- On message:
+  - Parses vehicle ID, timestamp, lat/lon, stop info.
+  - Inserts into realtime table and triggers delay calculation.
+
+#### 3. `backend/` (FastAPI)
+- Provides REST endpoints, including:
+  - `/vehicles`: current vehicle positions and meta info.
+  - `/delays`: computed delay for specified trips/stops.
+  - `/stops`, `/routes`, `/trips`: static transit data.
+- Responsible for:
+  - Binding static and realtime data.
+  - Serving data to frontend or 3rd-party clients.
+  - Maintaining database connections and service logic.
+
+#### 4. `database/` (TimescaleDB)
+- Houses:
+  - **Static tables**:
+    - `routes(route_id, name, color)`
+    - `stops(stop_id, name, lat, lon)`
+    - `trips(trip_id, route_id, service_id)`
+    - `stop_times(trip_id, stop_sequence, arrival_time, departure_time)`
+  - **Realtime tables**:
+    - `vehicle_positions(timestamp, vehicle_id, lat, lon, trip_id)`
+    - (potentially) `delay_events` or `stop_update` tables.
+- Uses TimescaleDB extension to optimize time-series queries.
+
+#### 5. `frontend/` (React + MapLibre)
+- Displays:
+  - Map with bus icons updated in near real-time.
+  - Color/label indicating delay per vehicle.
+- Architecture:
+  - `src/components/MapView.js` – renders MapLibre map & vehicle markers.
+  - `src/api.js` – client-side fetch calls to backend API.
+- Development:
+  - Install via `npm install`.
+  - Start with `npm start` (default: `localhost:3000`).
+  - Configured to query backend at `http://localhost:8000` (or via env var).
+
+#### 6. `docker-compose.yml`
+- **Services**:
+  - `db`: TimescaleDB.
+  - `backend`: FastAPI + subscriber + import script.
+  - `frontend`: (optional, if containerized) React app.
+- **Volumes**:
+  - Database storage mounted to persist data.
+- **Image build**:
+  - Backend built via its Dockerfile.
+  - Frontend may be served via static host or served separately.
 
 ---
 
-## Quick Links
+### 💡 Developer Highlights
 
-- **Live Demo:** *Coming soon or URL if deployed*  
-- **License:** MIT (or specify license here)  
-- **Contact:** (e.g., maintainers or project email)
+- **Module structure**:
+  - `main.py`: application entrypoint.
+  - `routers/`: FastAPI route definitions.
+  - `models/` or `schemas/`: DB table and Pydantic schemas.
+  - `services/`: Business logic – parsing, calculations, subscribers.
+- **JSON Schemas**:
+  - API responses follow Pydantic models (e.g. `Vehicle`, `StopTime`, `DelayReport`).
+- **Polling vs. Streaming**:
+  - Frontend polls REST endpoints at intervals.
+  - Backend ingest is near-real-time via MQTT.
+- **Schedules refresh**:
+  Run `import_gtfs.py` when new GTFS schedules are published. Refreshes static tables.
+- **Delay Calculation**:
+  - Find scheduled arrival time for the `stop_id` matching `trip_id`.
+  - Compute `delta = live_ts − scheduled_ts`.
+  - Store or compute on-demand for API delivery.
 
 ---
 
-*Bussikartta combines open transit data and modern tech to bring real-time public transport insights to developers and commuters alike.*
+### ✅ Summary for Developers
 
+1. Familiarize with the code by starting with the REST API in FastAPI: routes, models, and logic.
+2. Review GTFS import script to understand static data handling.
+3. Explore MQTT subscriber for real-time data flow into DB.
+4. Study DB schema via `init_timescale.sql` or inspect tables manually.
+5. Run in development mode using Docker Compose, then test the system end-to-end:
 
+```bash
+docker-compose up -d
+docker-compose exec backend python scripts/import_gtfs.py
+```
+
+6. Frontend inspection: see how visual mapping works via React/MapLibre.
+7. To extend features (e.g. new endpoints, map layers, data analytics), update the appropriate component and add tests.
+
+---
+
+This `overview.md` provides both a bird’s-eye view and under-the-hood walkthrough of Bussikartta. Let me know if you’d like additional sections!
